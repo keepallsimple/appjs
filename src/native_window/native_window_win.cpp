@@ -264,6 +264,10 @@ void NativeWindow::Show() {
   ForceForegroundWindow(handle_);
 }
 
+void NativeWindow::Focus() {
+  SetActiveWindow(handle_);
+}
+
 void NativeWindow::Hide() {
   ShowWindow(handle_, SW_HIDE);
 }

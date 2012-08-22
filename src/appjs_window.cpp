@@ -26,6 +26,7 @@ void Window::Init() {
   DECLARE_PROTOTYPE_METHOD("fullscreen", Fullscreen);
   DECLARE_PROTOTYPE_METHOD("drag", Drag);
   DECLARE_PROTOTYPE_METHOD("show", Show);
+  DECLARE_PROTOTYPE_METHOD("focus", Focus);
   DECLARE_PROTOTYPE_METHOD("hide", Hide);
   DECLARE_PROTOTYPE_METHOD("destroy", Destroy);
   DECLARE_PROTOTYPE_METHOD("runInBrowser", RunInBrowser);
@@ -91,6 +92,7 @@ CREATE_PROTOTYPE_INVOKER(Window, Minimize)
 CREATE_PROTOTYPE_INVOKER(Window, Maximize)
 CREATE_PROTOTYPE_INVOKER(Window, Fullscreen)
 CREATE_PROTOTYPE_INVOKER(Window, Show)
+CREATE_PROTOTYPE_INVOKER(Window, Focus)
 CREATE_PROTOTYPE_INVOKER(Window, Hide)
 CREATE_PROTOTYPE_INVOKER(Window, Destroy)
 
