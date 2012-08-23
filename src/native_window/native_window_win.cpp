@@ -4,6 +4,7 @@
 #define min(left,right) std::min(left,right)
 #define max(left,right) std::max(left,right)
 #include <gdiplus.h>
+#include <shlobj.h>
 #include "appjs.h"
 #include "includes/cef.h"
 #include "includes/util.h"
@@ -261,6 +262,10 @@ void NativeWindow::Restore() {
 void NativeWindow::Show() {
   ShowWindow(handle_, SW_SHOWNORMAL);
   ForceForegroundWindow(handle_);
+}
+
+void NativeWindow::Focus() {
+  SetActiveWindow(handle_);
 }
 
 void NativeWindow::Hide() {
@@ -538,5 +543,162 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) 
 
   return DefWindowProc(hwnd, message, wParam, lParam);
 }
+
+
+
+int CALLBACK DirectorySelectHook(HWND hwnd, UINT msg, LPARAM lParam, LPARAM data) {
+  switch (msg) {
+    case BFFM_INITIALIZED:
+      HWND parent = GetParent(hwnd);
+      RECT r;
+      GetWindowRect(parent, &r);
+      r.right = r.right - r.left + 200;
+      r.bottom = r.bottom - r.top + 200;
+      r.left = (NativeWindow::ScreenWidth() - r.right) / 2 | 0;
+      r.top = (NativeWindow::ScreenHeight() - r.bottom) / 2 | 0;
+      SetWindowPos(parent, NULL, r.left, r.top, r.right, r.bottom, SWP_NOZORDER);
+      SendMessage(hwnd, BFFM_SETSELECTION, true, data);
+      break;
+  }
+  return 0;
+}
+
+void NativeWindow::OpenFileDialog(uv_work_t* req) {
+  AppjsDialogSettings* settings = (AppjsDialogSettings*)req->data;
+  std::string       acceptTypes = settings->reserveString1;
+  bool              multiSelect = settings->reserveBool1;
+  bool                dirSelect = settings->reserveBool2;
+
+
+  //Cef::Pause();
+
+  settings->result = NULL;
+  char filename[MAX_PATH*10];
+  ZeroMemory(&filename, sizeof(filename));
+  //strcpy(filename, settings->initialValue.c_str());
+  //filename[settings->initialValue.size()] = 0;
+  //filename[MAX_PATH] = 0;
+
+  if (dirSelect) {
+    LPMALLOC pMalloc = NULL;
+    SHGetMalloc(&pMalloc);
+
+    BROWSEINFO bi;
+    bi.hwndOwner = NULL;
+    bi.pidlRoot = NULL;
+    bi.pszDisplayName = filename;
+    bi.lpszTitle = settings->title.c_str();
+    bi.ulFlags = BIF_USENEWUI | BIF_BROWSEFILEJUNCTIONS | BIF_RETURNONLYFSDIRS | BIF_RETURNFSANCESTORS;
+    bi.lParam = (LPARAM)ToWChar(settings->initialValue);
+    bi.iImage = -1;
+    bi.lpfn = DirectorySelectHook;
+
+    LPITEMIDLIST item;
+    if (item = SHBrowseForFolder(&bi)) {
+      char dir[MAX_PATH];
+      if (SHGetPathFromIDList(item, dir)) {
+        std::vector<char*> paths;
+        paths.push_back(dir);
+        settings->result = &paths;
+      }
+      pMalloc->Free(item);
+    }
+  } else {
+    std::replace(acceptTypes.begin(), acceptTypes.end(), ':', '\0');
+    std::replace(acceptTypes.begin(), acceptTypes.end(), ',', '\0');
+    acceptTypes += '\0';
+
+    OPENFILENAME ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.hInstance = 0;
+    ofn.lStructSize = sizeof(OPENFILENAME);
+    ofn.lpstrTitle = settings->title.c_str();
+    ofn.Flags = OFN_NOCHANGEDIR | OFN_FORCESHOWHIDDEN;
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = sizeof(filename);
+    ofn.lpstrFilter = acceptTypes.c_str();
+    if (!settings->initialValue.size()) {
+      ofn.lpstrInitialDir = settings->initialValue.c_str();
+    }
+
+    BOOL result;
+    if (settings->type == NW_DIALOGTYPE_FILE_SAVE) {
+      multiSelect = false;
+      result = GetSaveFileName(&ofn);
+    } else if (settings->type == NW_DIALOGTYPE_FILE_OPEN) {
+      if (multiSelect) {
+        ofn.Flags |= OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+      }
+      result = GetOpenFileName(&ofn);
+    }
+
+    if (result) {
+      settings->result = filename;
+    }
+  }
+
+  //Cef::Run();
+}
+
+void NativeWindow::ProcessFileDialog(uv_work_t* req) {
+  AppjsDialogSettings* settings = (AppjsDialogSettings*)req->data;
+  Persistent<Function> cb = settings->cb;
+  void* result = settings->result;
+
+  if (result != NULL) {
+
+    std::vector<char*> filenames;
+    char* offset = (char*)result;
+
+    do {
+      filenames.push_back(offset);
+      offset += strlen(offset) + 1;
+    } while (offset[0] != '\0');
+
+    std::vector<char*>::iterator file = filenames.begin();
+    Handle<String> base = String::New(*file);
+    Handle<Value> error = Undefined();
+    Local<Array> files;
+
+    if (filenames.size() == 1) {
+      files = Array::New(1);
+      files->Set(0, base);
+    } else {
+      files = Array::New(filenames.size() - 1);
+      base = String::Concat(base, String::New("\\"));
+      int index = 0;
+
+      for (file++; file != filenames.end(); ++file) {
+        files->Set(index, String::Concat(base, String::New(*file)));
+        index++;
+      }
+    }
+
+    Local<Value> argv[2] = { Local<Value>::New(error), Local<Value>::New(files) };
+    cb->Call(settings->me->GetV8Handle(), 2, argv);
+  } else {
+    Local<Value> argv[1] = { Local<Value>::New(String::New("canceled")) };
+    cb->Call(settings->me->GetV8Handle(), 1, argv);
+  }
+
+  cb.Dispose();
+  NativeWindow::DialogClosed();
+}
+
+
+
+
+void NativeWindow::OpenColorDialog(uv_work_t* req) {
+}
+
+void NativeWindow::ProcessColorDialog(uv_work_t* req) {
+}
+
+void NativeWindow::OpenFontDialog(uv_work_t* req) {
+}
+
+void NativeWindow::ProcessFontDialog(uv_work_t* req) {
+}
+
 
 } /* appjs */
